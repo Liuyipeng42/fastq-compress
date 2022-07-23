@@ -1,39 +1,58 @@
-import java.util.HashMap;
-import java.util.PriorityQueue;
-import java.util.Queue;
-import java.io.*;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.BufferedWriter;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.OutputStreamWriter;
+import java.io.RandomAccessFile;
+import java.io.Serializable;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
-class Node implements Comparable<Node>, Serializable {
+class Node implements Serializable {
 
 	private static final long serialVersionUID = -299482035708790407L;
 
-	private byte b;
-	private int freq;
-	private final Node left, right;
+	private List<Byte> bytes;
+	private Node left, right;
 
-	Node(byte b, int freq, Node left, Node right) {
-		this.b = b;
-		this.freq = freq;
-		this.left = left;
-		this.right = right;
+	Node() {
+	}
+
+	Node(List<Byte> bytes) {
+		this.bytes = bytes;
 	}
 
 	public boolean isLeaf() {
 		return left == null && right == null;
 	}
 
-	@Override
-	public int compareTo(Node that) {
-		return this.freq - that.freq;
+	public List<Byte> getBytes() {
+		return bytes;
 	}
 
-	public int getFreq() {
-		return freq;
+	public void setBytes(List<Byte> bytes) {
+		this.bytes = bytes;
 	}
 
-	public byte getByte() {
-		return b;
+	public void setLeft(Node left) {
+		this.left = left;
+	}
+
+	public void setRight(Node right) {
+		this.right = right;
 	}
 
 	public Node getLeft() {
@@ -46,6 +65,12 @@ class Node implements Comparable<Node>, Serializable {
 
 }
 
+class Codes{
+	public Code[] codeTable;
+	
+	public Node codeTrie;
+}
+
 class Code {
 	public int code;
 	public int len;
@@ -56,9 +81,89 @@ class Code {
 	}
 }
 
-public class Huffman {
+public class ShannonFano {
 
-	private HashMap<Byte, Integer> buildCounts(String filepath) throws IOException {
+	private Code[] buildCode(Node trie) {
+		Code[] table = new Code[128];
+		buildCode(table, trie, 0, 0);
+
+		return table;
+	}
+
+	private void buildCode(Code[] table, Node node, int code, int len) {
+		if (node.isLeaf()) {
+			table[node.getBytes().get(0)] = new Code(code, len);
+			return;
+		}
+		buildCode(table, node.getLeft(), code << 1, len + 1);
+		buildCode(table, node.getRight(), (code << 1) | 1, len + 1);
+	}
+
+	public Codes getCodes(Map<Byte, Integer> counts) {
+
+		// 按照出现次数从大到小排序，并返回 key
+		List<Byte> list = sortByCounts(counts);
+
+		Node trie = new Node();
+
+		trie.setBytes(list);
+
+		genTrie(trie, counts);
+
+		Code[] table = buildCode(trie);
+
+		Codes codes = new Codes();
+
+		codes.codeTable = table;
+		codes.codeTrie = trie;
+
+		return codes;
+	}
+
+	private static List<Byte> sortByCounts(Map<Byte, Integer> counts) {
+
+		Set<Byte> countsKeys = counts.keySet();
+
+		List<Byte> list = new ArrayList<Byte>(countsKeys);
+
+		Collections.sort(list, (o1, o2) -> -counts.get(o1).compareTo(counts.get(o2)));
+
+		return list;
+	}
+
+	private static void genTrie(Node node, Map<Byte, Integer> counts) {
+
+		List<Byte> list = node.getBytes();
+
+		if (list.size() <= 1)
+			return;
+
+		int sum = 0;
+		int fullSum = 0;
+		for (byte b : list)
+			fullSum += counts.get(b);
+
+		float bestdiff = 5;
+		int i = 0;
+
+		while (i < list.size()) {
+			float prediff = bestdiff;
+			sum += counts.get(list.get(i)); // 计算 i 之前的所有数的和
+			bestdiff = Math.abs((float) sum / fullSum - 0.5F); // 计算 和 与 0.5 的差的绝对值
+			if (prediff < bestdiff) // 若绝对值比上一个绝对值大，就跳出循环
+				break;
+			i++;
+		}
+
+		node.setBytes(null);
+		node.setLeft(new Node(new ArrayList<>(list.subList(0, i))));
+		node.setRight(new Node(new ArrayList<>(list.subList(i, list.size()))));
+
+		genTrie(node.getLeft(), counts);
+		genTrie(node.getRight(), counts);
+	}
+
+	private Map<Byte, Integer> buildCounts(String filepath) throws IOException {
 
 		InputStream is = new FileInputStream(filepath);
 		BufferedInputStream in = new BufferedInputStream(is);
@@ -78,7 +183,7 @@ public class Huffman {
 				if (index == byteNum) {
 					break out;
 				}
-			}			
+			}
 		}
 
 		in.close();
@@ -86,43 +191,13 @@ public class Huffman {
 		return counts;
 	}
 
-	private Node buildTrie(HashMap<Byte, Integer> counts) {
-		Queue<Node> priorityQueue = new PriorityQueue<>();
-
-		for (byte ch : counts.keySet()) {
-			priorityQueue.add(new Node(ch, counts.get(ch), null, null));
-		}
-
-		while (priorityQueue.size() > 1) {
-			Node x = priorityQueue.poll();
-			Node y = priorityQueue.poll();
-			Node parent = new Node((byte) 0, x.getFreq() + y.getFreq(), x, y);
-			priorityQueue.add(parent);
-		}
-
-		return priorityQueue.poll();
-	}
-
-	private Code[] buildCode(Node trie) {
-		Code[] table = new Code[128];
-		buildCode(table, trie, 0, 0);
-		return table;
-	}
-
-	private void buildCode(Code[] table, Node node, int code, int len) {
-		if (node.isLeaf()) {
-			table[node.getByte()] = new Code(code, len);
-			return;
-		}
-		buildCode(table, node.getLeft(), code << 1, len + 1);
-		buildCode(table, node.getRight(), (code << 1) | 1, len + 1);
-	}
-
 	public void compress(String filepath) throws IOException {
 
-		HashMap<Byte, Integer> counts = buildCounts(filepath);
-		Node trie = buildTrie(counts);
-		Code[] table = buildCode(trie);
+		Map<Byte, Integer> counts = buildCounts(filepath);
+		Codes codes = getCodes(counts);
+
+		Code[] table = codes.codeTable;
+		Node trie = codes.codeTrie;
 
 		// 获取压缩后的文件名
 		String compressFilename = "";
@@ -130,7 +205,7 @@ public class Huffman {
 		for (int i = 0; i < t.length - 1; i++) {
 			compressFilename += t[i];
 		}
-		compressFilename += ".huffman";
+		compressFilename += ".sf";
 
 		BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(compressFilename));
 
@@ -147,7 +222,7 @@ public class Huffman {
 		}
 		out.write(objBytes);
 
-		// 将压缩后的 bit 数写入文件
+		// 给压缩后的 bit 长度 占位
 		for (int i = 0; i < 8; i++) {
 			out.write(0);
 		}
@@ -201,6 +276,7 @@ public class Huffman {
 		rf.close();
 
 		System.out.println("compress success");
+
 	}
 
 	private String getExpendFilename(String filepath) {
@@ -223,8 +299,9 @@ public class Huffman {
 	public void expend(String filepath) throws IOException {
 
 		BufferedInputStream in = new BufferedInputStream(new FileInputStream(filepath));
+
 		BufferedWriter out = new BufferedWriter(
-				new OutputStreamWriter(new FileOutputStream(getExpendFilename(filepath))));
+			new OutputStreamWriter(new FileOutputStream(getExpendFilename(filepath))));
 
 		// 读取树对象的长度
 		ByteBuffer buffer;
@@ -260,7 +337,7 @@ public class Huffman {
 						x = x.getLeft();
 					}
 					if (x.isLeaf()) {
-						out.write(x.getByte());
+						out.write(x.getBytes().get(0));
 						x = root;
 					}
 					n++;
@@ -295,13 +372,15 @@ public class Huffman {
 	}
 
 	public static void main(String[] args) throws IOException {
-		Huffman huffman = new Huffman();
+
+		ShannonFano shannonFano = new ShannonFano();
+
 		long t = System.currentTimeMillis();
-		huffman.compress("dataset.fastq");
+		shannonFano.compress("dataset.fastq");
 		System.out.println("---------------------");
-		huffman.expend("dataset.huffman");
+		shannonFano.expend("dataset.sf");
 		System.out.println("time: " + (System.currentTimeMillis() - t));
 
-		
 	}
+
 }

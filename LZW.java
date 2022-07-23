@@ -211,7 +211,8 @@ public class LZW {
 
 		FileInputStream is = new FileInputStream(filepath);
 		BufferedInputStream in = new BufferedInputStream(is);
-
+		BufferedWriter out = new BufferedWriter(
+				new OutputStreamWriter(new FileOutputStream(getExpendFilename(filepath))));
 		
 		long byteNum = is.available();
 		long index = 0;
@@ -229,9 +230,8 @@ public class LZW {
 
 		code = t[1] & 0xf;
 		len = 4;
-		StringBuilder expended = new StringBuilder();
 
-		while (true) {
+		out: while (true) {
 			byte[] bytes = new byte[1024 * 1024];
 			in.read(bytes);
 			for (int i = 0; i < bytes.length; i++) {
@@ -240,7 +240,9 @@ public class LZW {
 					code |= (bytes[i] >> 4 * j) & 0xf;
 					len += 4;
 					if (len == 12) {
-						expended.append(val);
+						for (int k = 0; k < val.length(); k++) 
+							out.write(val.charAt(k));
+						
 						String s = st[code];
 						if (nextCode == code)
 							s = val + val.charAt(0);
@@ -255,19 +257,11 @@ public class LZW {
 
 				index++;
 				if (index == byteNum + 2) {
-					break;
+					break out;
 				}
-			}
-
-			if (index == byteNum + 2) {
-				break;
 			}
 		}
 		in.close();
-
-		BufferedWriter out = new BufferedWriter(
-				new OutputStreamWriter(new FileOutputStream(getExpendFilename(filepath))));
-		out.write(expended.toString());
 
 		out.flush();
 		out.close();
